@@ -1,0 +1,8 @@
+---
+- hosts: localhost
+  gather_facts: false
+ 
+  tasks:
+    - name: Test
+      debug:
+        msg: "Hello World"
