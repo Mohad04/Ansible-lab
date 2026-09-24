@@ -1,0 +1,24 @@
+---
+- name: VMware Test
+  hosts: localhost
+  connection: local
+  gather_facts: no
+ 
+  vars:
+    vcenter_hostname: "your-vcenter-fqdn"
+    vcenter_username: "svc_ansible@vsphere.local"
+    vcenter_password: "your_password"
+ 
+  tasks:
+ 
+    - name: Gather VM information
+      vmware_vm_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+      register: vm_info
+ 
+    - name: Display VM count
+      debug:
+        msg: "Found {{ vm_info.virtual_machines | length }} virtual machines"
