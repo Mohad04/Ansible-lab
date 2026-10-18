@@ -1,0 +1,49 @@
+---
+- name: Install ControlUp Linux Agent
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    cu_tenant: "{{ lookup('env', 'CU_TENANT') }}"
+    cu_regcode: "{{ lookup('env', 'CU_DEVREGCODE') }}"
+
+  pre_tasks:
+    - name: Validate ControlUp configuration
+      assert:
+        that:
+          - cu_tenant | length > 0
+          - cu_regcode | length > 0
+        fail_msg: "ControlUp tenant or registration code is missing."
+      no_log: true
+      run_once: true
+
+  tasks:
+    - name: Download ControlUp installer
+      get_url:
+        url: https://downloads.sip.controlup.com/sip-install.sh
+        dest: /tmp/sip-install.sh
+        mode: '0700'
+
+    - name: Install ControlUp Linux Agent
+      command: >
+        sh /tmp/sip-install.sh
+        -t {{ cu_tenant | quote }}
+        -d {{ cu_regcode | quote }}
+      no_log: true
+      register: install_result
+
+    - name: Start and enable ControlUp service
+      systemd:
+        name: avaceesip
+        state: started
+        enabled: true
+
+    - name: Verify ControlUp service
+      command: systemctl is-active avaceesip
+      register: controlup_status
+      changed_when: false
+
+    - name: Display installation status
+      debug:
+        msg: "ControlUp service: {{ controlup_status.stdout }}"
