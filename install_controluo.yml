@@ -5,8 +5,8 @@
   gather_facts: false
 
   vars:
-    cu_tenant: "{{ lookup('env', 'CU_TENANT') }}"
-    cu_regcode: "{{ lookup('env', 'CU_DEVREGCODE') }}"
+    cu_tenant: "{{ controlup_tenant | default('') }}"
+    cu_regcode: "{{ controlup_regcode | default('') }}"
 
   pre_tasks:
     - name: Validate ControlUp configuration
