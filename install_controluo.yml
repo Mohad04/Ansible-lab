@@ -1,47 +1,80 @@
 ---
-- name: Install and Configure ControlUp Edge DX
+- name: Install and configure ControlUp Edge DX Linux Agent
   hosts: all
   become: true
   gather_facts: false
 
   vars:
     controlup_installer: /tmp/sip-install-v2.sh
+    controlup_installer_url: "https://downloads.sip.controlup.com/sip-install-v2.sh"
+    controlup_service: avaceesip
 
   tasks:
-    - name: Download ControlUp installer
-      ansible.builtin.get_url:
-        url: https://downloads.sip.controlup.com/sip-install-v2.sh
+
+    - name: Validate ControlUp survey variables
+      assert:
+        that:
+          - cu_tenant is defined
+          - cu_regcode is defined
+          - cu_tenant | length > 0
+          - cu_regcode | length > 0
+        fail_msg: "ControlUp tenant or registration code is missing."
+      no_log: true
+
+    - name: Download ControlUp installation script
+      get_url:
+        url: "{{ controlup_installer_url }}"
         dest: "{{ controlup_installer }}"
-        mode: "0755"
+        mode: '0755'
+        timeout: 60
 
     - name: Install or update ControlUp Edge DX agent
-      ansible.builtin.command:
-        argv:
-          - /bin/sh
-          - "{{ controlup_installer }}"
-          - -t
-          - "{{ cu_tenant }}"
-          - -d
-          - "{{ cu_regcode }}"
-      no_log: true
+      command: >
+        /bin/sh {{ controlup_installer }}
+        -t {{ cu_tenant | quote }}
+        -d {{ cu_regcode | quote }}
       register: controlup_install
+      no_log: true
+      ignore_errors: true
 
-    - name: Enable and start ControlUp service
-      ansible.builtin.systemd:
-        name: avaceesip
-        enabled: true
+    - name: Check whether ControlUp service exists
+      command: systemctl cat avaceesip
+      register: controlup_unit
+      changed_when: false
+      failed_when: false
+
+    - name: Report installation failure
+      fail:
+        msg: >-
+          ControlUp installation failed on {{ inventory_hostname }}.
+          Installer exit code: {{ controlup_install.rc }}.
+          Service unit found: {{ controlup_unit.rc == 0 }}.
+          Check the installer output locally on the server.
+      when: controlup_install.rc != 0
+
+    - name: Verify ControlUp service was installed
+      fail:
+        msg: "ControlUp service was not installed on {{ inventory_hostname }}."
+      when: controlup_unit.rc != 0
+
+    - name: Start and enable ControlUp service
+      systemd:
+        name: "{{ controlup_service }}"
         state: started
+        enabled: true
+        daemon_reload: true
 
-    - name: Verify ControlUp service is active
-      ansible.builtin.command:
-        cmd: systemctl is-active avaceesip
+    - name: Check ControlUp service status
+      command: systemctl is-active avaceesip
       register: controlup_status
       changed_when: false
       failed_when: controlup_status.stdout != "active"
 
-    - name: Display ControlUp service status
-      ansible.builtin.debug:
+    - name: Display ControlUp deployment result
+      debug:
         msg:
-          - "Host: {{ inventory_hostname }}"
-          - "Service: avaceesip"
-          - "Status: {{ controlup_status.stdout }}"
+          - "Server: {{ inventory_hostname }}"
+          - "Installation: completed"
+          - "Service: {{ controlup_service }}"
+          - "Service status: {{ controlup_status.stdout }}"
+          - "Cloud registration: requires confirmation in ControlUp"
