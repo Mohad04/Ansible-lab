@@ -11,17 +11,17 @@
 
   tasks:
 
-    - name: Validate ControlUp survey variables
-      assert:
-        that:
-          - cu_tenant is defined
-          - cu_regcode is defined
-          - cu_tenant | length > 0
-          - cu_regcode | length > 0
-        fail_msg: "ControlUp tenant or registration code is missing."
-      no_log: true
+    - name: Check ControlUp survey variables
+      fail:
+        msg: "Missing tenant. Check Tower survey variable cu_tenant."
+      when: cu_tenant is not defined or (cu_tenant | default('') | length == 0)
 
-    - name: Download ControlUp installation script
+    - name: Check registration code variable
+      fail:
+        msg: "Missing registration code. Check Tower survey variable cu_regcode."
+      when: cu_regcode is not defined or (cu_regcode | default('') | length == 0)
+
+    - name: Download ControlUp installer
       get_url:
         url: "{{ controlup_installer_url }}"
         dest: "{{ controlup_installer }}"
@@ -29,7 +29,7 @@
         timeout: 60
 
     - name: Install or update ControlUp Edge DX agent
-      command: >
+      shell: >
         /bin/sh {{ controlup_installer }}
         -t {{ cu_tenant | quote }}
         -d {{ cu_regcode | quote }}
@@ -37,24 +37,24 @@
       no_log: true
       ignore_errors: true
 
-    - name: Check whether ControlUp service exists
+    - name: Report ControlUp installation failure
+      fail:
+        msg: >-
+          ControlUp installer failed on {{ inventory_hostname }}.
+          Exit code: {{ controlup_install.rc }}.
+          Check tenant, registration code, installer
+          compatibility, and outbound network connectivity.
+      when: controlup_install.rc != 0
+
+    - name: Check ControlUp service exists
       command: systemctl cat avaceesip
       register: controlup_unit
       changed_when: false
       failed_when: false
 
-    - name: Report installation failure
+    - name: Fail if ControlUp service is missing
       fail:
-        msg: >-
-          ControlUp installation failed on {{ inventory_hostname }}.
-          Installer exit code: {{ controlup_install.rc }}.
-          Service unit found: {{ controlup_unit.rc == 0 }}.
-          Check the installer output locally on the server.
-      when: controlup_install.rc != 0
-
-    - name: Verify ControlUp service was installed
-      fail:
-        msg: "ControlUp service was not installed on {{ inventory_hostname }}."
+        msg: "ControlUp service avaceesip was not found."
       when: controlup_unit.rc != 0
 
     - name: Start and enable ControlUp service
@@ -64,17 +64,17 @@
         enabled: true
         daemon_reload: true
 
-    - name: Check ControlUp service status
+    - name: Verify ControlUp service is active
       command: systemctl is-active avaceesip
       register: controlup_status
       changed_when: false
       failed_when: controlup_status.stdout != "active"
 
-    - name: Display ControlUp deployment result
+    - name: Display installation result
       debug:
         msg:
           - "Server: {{ inventory_hostname }}"
-          - "Installation: completed"
+          - "ControlUp installation completed"
           - "Service: {{ controlup_service }}"
-          - "Service status: {{ controlup_status.stdout }}"
-          - "Cloud registration: requires confirmation in ControlUp"
+          - "Status: {{ controlup_status.stdout }}"
+          - "Verify cloud registration in ControlUp portal"
