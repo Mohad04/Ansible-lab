@@ -1,0 +1,47 @@
+---
+- name: Install and Configure ControlUp Edge DX
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    controlup_installer: /tmp/sip-install-v2.sh
+
+  tasks:
+    - name: Download ControlUp installer
+      ansible.builtin.get_url:
+        url: https://downloads.sip.controlup.com/sip-install-v2.sh
+        dest: "{{ controlup_installer }}"
+        mode: "0755"
+
+    - name: Install or update ControlUp Edge DX agent
+      ansible.builtin.command:
+        argv:
+          - /bin/sh
+          - "{{ controlup_installer }}"
+          - -t
+          - "{{ cu_tenant }}"
+          - -d
+          - "{{ cu_regcode }}"
+      no_log: true
+      register: controlup_install
+
+    - name: Enable and start ControlUp service
+      ansible.builtin.systemd:
+        name: avaceesip
+        enabled: true
+        state: started
+
+    - name: Verify ControlUp service is active
+      ansible.builtin.command:
+        cmd: systemctl is-active avaceesip
+      register: controlup_status
+      changed_when: false
+      failed_when: controlup_status.stdout != "active"
+
+    - name: Display ControlUp service status
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Service: avaceesip"
+          - "Status: {{ controlup_status.stdout }}"
