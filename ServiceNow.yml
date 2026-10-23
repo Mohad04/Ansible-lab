@@ -1,0 +1,111 @@
+---
+- name: Install and Configure ServiceNow ACC
+  hosts: all
+  become: yes
+  gather_facts: no
+
+  vars:
+    acc_version: "6.0.4"
+    acc_rpm_source: "/usr/local/src/agent-client-collector-{{ acc_version }}-x86_64.rpm"
+    acc_rpm_dest: "/tmp/agent-client-collector-{{ acc_version }}-x86_64.rpm"
+
+    # Existing MID Server endpoints
+    acc_backend_urls:
+      - "wss://10.226.8.53:8800/ws/events"
+      - "wss://10.244.12.14:8800/ws/events"
+      - "wss://10.226.8.52:8800/ws/events"
+      - "wss://10.244.12.13:8800/ws/events"
+      - "wss://10.226.8.56:8800/ws/events"
+      - "wss://10.226.8.57:8800/ws/events"
+      - "wss://10.244.12.16:8800/ws/events"
+
+    acc_config_path: "/etc/servicenow/agent-client-collector/acc.yml"
+    acc_service_name: "acc"
+
+    # acc_api_key is injected securely by Tower.
+
+  tasks:
+    - name: Validate ACC configuration
+      assert:
+        that:
+          - acc_api_key is defined
+          - acc_api_key | default('') | length > 0
+          - acc_backend_urls | length == 7
+        fail_msg: "ACC configuration is incomplete."
+      no_log: yes
+
+    - name: Check installed ACC package
+      command: rpm -q agent-client-collector
+      register: acc_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Copy ACC RPM to target
+      copy:
+        src: "{{ acc_rpm_source }}"
+        dest: "{{ acc_rpm_dest }}"
+        mode: '0644'
+      when: acc_installed.rc != 0
+
+    - name: Install ACC RPM
+      yum:
+        name: "{{ acc_rpm_dest }}"
+        state: present
+      when: acc_installed.rc != 0
+
+    - name: Create ACC configuration directory
+      file:
+        path: "{{ acc_config_path | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0750'
+
+    - name: Deploy ACC configuration
+      template:
+        src: templates/acc.yml.j2
+        dest: "{{ acc_config_path }}"
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: yes
+      notify: Restart ACC
+
+    - name: Deploy ACC systemd service
+      copy:
+        src: /usr/local/src/acc.service
+        dest: /etc/systemd/system/acc.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart ACC
+
+    - name: Enable and start ACC
+      systemd:
+        name: "{{ acc_service_name }}"
+        daemon_reload: yes
+        enabled: yes
+        state: started
+
+    - name: Apply configuration changes
+      meta: flush_handlers
+
+    - name: Verify ACC service is active
+      command: systemctl is-active acc
+      register: acc_status
+      changed_when: false
+      failed_when: >
+        acc_status.rc != 0 or
+        acc_status.stdout != "active"
+
+    - name: Remove temporary RPM
+      file:
+        path: "{{ acc_rpm_dest }}"
+        state: absent
+
+  handlers:
+    - name: Restart ACC
+      systemd:
+        name: "{{ acc_service_name }}"
+        daemon_reload: yes
+        state: restarted
